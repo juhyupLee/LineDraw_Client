@@ -29,8 +29,6 @@ BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK    About(HWND, UINT, WPARAM, LPARAM);
 
-
-
 struct Header
 {
     unsigned short len;
@@ -42,7 +40,6 @@ struct DrawPacket
     int endX;
     int endY;
 };
-
 //-----------------------------------------------------------------------
 // Juhyup Code
 int g_PrevX = 0;
@@ -131,16 +128,6 @@ ATOM MyRegisterClass(HINSTANCE hInstance)
     return RegisterClassExW(&wcex);
 }
 
-//
-//   함수: InitInstance(HINSTANCE, int)
-//
-//   용도: 인스턴스 핸들을 저장하고 주 창을 만듭니다.
-//
-//   주석:
-//
-//        이 함수를 통해 인스턴스 핸들을 전역 변수에 저장하고
-//        주 프로그램 창을 만든 다음 표시합니다.
-//
 BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 {
    hInst = hInstance; // 인스턴스 핸들을 전역 변수에 저장합니다.
@@ -161,16 +148,6 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
    return TRUE;
 }
 
-//
-//  함수: WndProc(HWND, UINT, WPARAM, LPARAM)
-//
-//  용도: 주 창의 메시지를 처리합니다.
-//
-//  WM_COMMAND  - 애플리케이션 메뉴를 처리합니다.
-//  WM_PAINT    - 주 창을 그립니다.
-//  WM_DESTROY  - 종료 메시지를 게시하고 반환합니다.
-//
-//
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -314,6 +291,7 @@ void SelectProcess(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
         break;
     case FD_CLOSE:
         closesocket(g_Socket);
+        PostQuitMessage(0);
         break;
     }
 }
@@ -339,11 +317,25 @@ void RecvEvent()
     //----------------------------------------------------
     // 수신링버퍼에 recv한 데이터를 저장함 
     //----------------------------------------------------
-    char buffer[100];
-    int recvRtn = recv(g_Socket, buffer, 100, 0);
-   // int recvRtn = recv(g_Socket, g_RecvRingBuffer.GetRearBufferPtr(), g_RecvRingBuffer.GetDirectEnqueueSize(), 0);
-    g_RecvRingBuffer.Enqueue(buffer, recvRtn);
-    //g_RecvRingBuffer.MoveRear(recvRtn); //수동으로 Rear 포인터 옮겨주기
+    char* tempRearBuffer;
+    //----------------------------------------------------------
+    // 자동 enqueue버전
+    //----------------------------------------------------------
+    //int recvRtn = recv(g_Socket, buffer, 100, 0);
+    //g_RecvRingBuffer.Enqueue(buffer, recvRtn);
+
+    ////----------------------------------------------------------
+    //// 수동 링버퍼
+    ////----------------------------------------------------------
+    int directSize = g_RecvRingBuffer.GetDirectEnqueueSize();
+
+    int recvRtn = recv(g_Socket, g_RecvRingBuffer.GetRearBufferPtr(), g_RecvRingBuffer.GetDirectEnqueueSize(), 0);
+    tempRearBuffer = g_RecvRingBuffer.GetRearBufferPtr();
+
+    int* X1 = (int*)(tempRearBuffer + 2);
+    int* Y1 = (int*)(tempRearBuffer + 6);
+    int* X2 = (int*)(tempRearBuffer + 10);
+    int* Y2 = (int*)(tempRearBuffer + 14);
 
     if (recvRtn <= 0)
     {
@@ -351,34 +343,39 @@ void RecvEvent()
         if (WSAGetLastError() != WSAEWOULDBLOCK)
         {
             ERROR_LOG(L"recvError()",g_hWnd);
-            closesocket(g_Socket);
+            MessageBox(g_hWnd, L"Recv Error.. 서버 find으로 추정..", MB_OK, 0);
             return;
         }
     }
+   
+    g_RecvRingBuffer.MoveRear(recvRtn); //수동으로 Rear 포인터 옮겨주기
+   
     //----------------------------------------------------
     // 링버퍼를 통해서, 수신된 패킷이 완성됬는지 확인해야함.
     //----------------------------------------------------
+    while (true)
+    {
+        if (g_RecvRingBuffer.GetUsedSize() < sizeof(Header))
+            break;
+        Header peekHeader;
 
-    if (g_RecvRingBuffer.GetUsedSize() < sizeof(Header))
-        return;
+        int peekRtn = g_RecvRingBuffer.Peek((char*)&peekHeader, sizeof(Header));
 
-    Header peekHeader;
-    int peekRtn = g_RecvRingBuffer.Peek((char*)&peekHeader, sizeof(Header));
+        if (g_RecvRingBuffer.GetUsedSize() < sizeof(Header) + peekHeader.len)
+            break;
 
-    if (g_RecvRingBuffer.GetUsedSize() < sizeof(Header) + peekHeader.len)
-        return;
+        g_RecvRingBuffer.MoveFront(2);
 
-    g_RecvRingBuffer.MoveFront(2);
+        DrawPacket drawPacket;
+        //----------------------------------------------------
+        // 패킷+헤더만큼 사이즈가있는걸 확인했다면, 헤더는 필요없으니 디큐하거나 MoveFront를하고, 
+        // 서버에서 보내온 데이터를 패킷에 담은 뒤, DrawLine함수를 실행한다.
+        //----------------------------------------------------
+        int deqRtn = g_RecvRingBuffer.Dequeue((char*)&drawPacket, sizeof(DrawPacket));
 
-    DrawPacket drawPacket;
-
-    //----------------------------------------------------
-    // 패킷+헤더만큼 사이즈가있는걸 확인했다면, 헤더는 필요없으니 디큐하거나 MoveFront를하고, 
-    // 서버에서 보내온 데이터를 패킷에 담은 뒤, DrawLine함수를 실행한다.
-    //----------------------------------------------------
-    int deqRtn = g_RecvRingBuffer.Dequeue((char*)&drawPacket, sizeof(DrawPacket));
-
-    DrawLine(drawPacket.startX, drawPacket.startY, drawPacket.endX, drawPacket.endY);
+        DrawLine(drawPacket.startX, drawPacket.startY, drawPacket.endX, drawPacket.endY);
+    }
+    
 }
 
 void SendEvent()
@@ -395,11 +392,17 @@ void SendEvent()
     {
         int retPeek = g_SendRingBuffer.Peek(buffer, g_SendRingBuffer.GetUsedSize());
         int sendRtn = send(g_Socket, buffer, retPeek, 0);
-        g_SendRingBuffer.MoveFront(sendRtn);
+        //-------------------------------------------
+        // send했는데 에러가나면, 할게없다.
+        // 그냥 루프빠져나와야되는거같다.
+        //-------------------------------------------
         if (sendRtn < 0)
         {
             ERROR_LOG(L"sendError()", g_hWnd);
+            break;
         }
+        g_SendRingBuffer.MoveFront(sendRtn);
+       
     }
 
 }
