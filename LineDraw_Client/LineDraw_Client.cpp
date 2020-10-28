@@ -15,7 +15,7 @@
 #define MAX_LOADSTRING 100
 #define WM_NETWORK (WM_USER+1)
 #define SERVER_PORT 25000
-#define SERVER_IP L"127.0.0.1"
+#define SERVER_IP L"192.168.10.35"
 
 
 // 전역 변수:
@@ -62,6 +62,11 @@ void SendEvent();
 void RecvEvent();
 void DrawLine(int startX, int startY, int endX, int endY);
 
+Header g_Header;
+DrawPacket g_DrawPacket;
+
+WCHAR g_DebugString[128];
+
 //-----------------------------------------------------------------------
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
                      _In_opt_ HINSTANCE hPrevInstance,
@@ -91,10 +96,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance,
     Network_Init(g_hWnd);
 
     // 기본 메시지 루프입니다:
+    srand(10);
+  
     while (GetMessage(&msg, nullptr, 0, 0))
     {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
+       
     }
 
     return (int) msg.wParam;
@@ -174,6 +182,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hWnd, &ps);
             // TODO: 여기에 hdc를 사용하는 그리기 코드를 추가합니다...
+            TextOut(hdc, 800, 200, g_DebugString, wcslen(g_DebugString));
             EndPaint(hWnd, &ps);
         }
         break;
@@ -186,16 +195,15 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         {
             int xPos = GET_X_LPARAM(lParam);
             int yPos = GET_Y_LPARAM(lParam);
-            Header header;
-            DrawPacket drawPacket; 
 
-            header.len = sizeof(DrawPacket);
-            drawPacket.endX = xPos;
-            drawPacket.endY = yPos;
-            drawPacket.startX = g_PrevX;
-            drawPacket.startY = g_PrevY;
-           
-            SendPacket(&header, (char*)&drawPacket, sizeof(drawPacket));
+            g_Header.len = sizeof(DrawPacket);
+            g_DrawPacket.endX = xPos;
+            g_DrawPacket.endY = yPos;
+            g_DrawPacket.startX = g_PrevX;
+            g_DrawPacket.startY = g_PrevY;
+            g_PrevX = g_DrawPacket.endX;
+            g_PrevY = g_DrawPacket.endY;
+            SendPacket(&g_Header, (char*)&g_DrawPacket, sizeof(g_DrawPacket));
         }
         break;
     }
@@ -298,6 +306,13 @@ void SelectProcess(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 void SendPacket(Header* header, char* payload, int payloadSize)
 {
+    DrawPacket* packet = (DrawPacket*)payload;
+
+    int startX = packet->startX;
+    int startY = packet->startY;
+    int endX = packet->endX;
+    int endY = packet->endY;
+    
     int enqueueRtn = g_SendRingBuffer.Enqueue((char*)header, sizeof(Header));
     if (enqueueRtn != sizeof(Header))
         ERROR_LOG(L"SendRingbuffer() error", g_hWnd);
@@ -318,6 +333,7 @@ void RecvEvent()
     // 수신링버퍼에 recv한 데이터를 저장함 
     //----------------------------------------------------
     char* tempRearBuffer;
+   /* char buufer*/
     //----------------------------------------------------------
     // 자동 enqueue버전
     //----------------------------------------------------------
@@ -374,8 +390,7 @@ void RecvEvent()
         int deqRtn = g_RecvRingBuffer.Dequeue((char*)&drawPacket, sizeof(DrawPacket));
 
         DrawLine(drawPacket.startX, drawPacket.startY, drawPacket.endX, drawPacket.endY);
-    }
-    
+    } 
 }
 
 void SendEvent()
@@ -386,11 +401,19 @@ void SendEvent()
     // 그래서 peek을해서 보내보고, 
     // 에러가없다면 그만큼 front를 땡겨와야된다.
     //---------------------------------------------
-    char buffer[100];
+    char buffer[1000];
 
     while (g_SendRingBuffer.GetUsedSize() != 0)
     {
         int retPeek = g_SendRingBuffer.Peek(buffer, g_SendRingBuffer.GetUsedSize());
+        
+        Header* header = (Header*)buffer;
+        DrawPacket* data = (DrawPacket*)(buffer+2);
+
+        
+        WCHAR string[124];
+        wsprintf(string, L"start X:%d startY:%d endX:%d endY:%d ", data->startX, data->startY, data->endX, data->endY);
+        ERROR_LOG(string, g_hWnd);
         int sendRtn = send(g_Socket, buffer, retPeek, 0);
         //-------------------------------------------
         // send했는데 에러가나면, 할게없다.
@@ -412,7 +435,5 @@ void DrawLine(int startX, int startY, int endX, int endY)
     HDC hdc = GetDC(g_hWnd);
     MoveToEx(hdc, startX, startY, NULL);
     LineTo(hdc, endX, endY);
-    g_PrevX = endX;
-    g_PrevY = endY;
     ReleaseDC(g_hWnd, hdc);
 }
