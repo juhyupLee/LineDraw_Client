@@ -1,2 +1,0 @@
-connect() error  [ErrorCode:10035] [Line:268]
-SelectProcess() error  [ErrorCode:10061] [Line:276]

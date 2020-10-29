@@ -1,2 +1,0 @@
-connect() error  [ErrorCode:10035] [Line:267]
-start X:256 startY:221 endX:256 endY:221   [ErrorCode:0] [Line:408]

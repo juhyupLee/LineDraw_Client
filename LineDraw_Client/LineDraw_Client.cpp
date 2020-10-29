@@ -15,7 +15,7 @@
 #define MAX_LOADSTRING 100
 #define WM_NETWORK (WM_USER+1)
 #define SERVER_PORT 25000
-#define SERVER_IP L"192.168.10.35"
+#define SERVER_IP L"127.0.0.1"
 
 
 // 전역 변수:
@@ -187,6 +187,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_DESTROY:
+       // closesocket(g_Socket);
         PostQuitMessage(0);
         break;
     case WM_MOUSEMOVE:
@@ -348,6 +349,9 @@ void RecvEvent()
     int recvRtn = recv(g_Socket, g_RecvRingBuffer.GetRearBufferPtr(), g_RecvRingBuffer.GetDirectEnqueueSize(), 0);
     tempRearBuffer = g_RecvRingBuffer.GetRearBufferPtr();
 
+    WCHAR buf[128];
+    wsprintf(buf, L"recvRtn:%d", recvRtn);
+    ERROR_LOG(buf, g_hWnd);
     int* X1 = (int*)(tempRearBuffer + 2);
     int* Y1 = (int*)(tempRearBuffer + 6);
     int* X2 = (int*)(tempRearBuffer + 10);
@@ -377,7 +381,7 @@ void RecvEvent()
 
         int peekRtn = g_RecvRingBuffer.Peek((char*)&peekHeader, sizeof(Header));
 
-        if (g_RecvRingBuffer.GetUsedSize() < sizeof(Header) + peekHeader.len)
+        if (g_RecvRingBuffer.GetUsedSize() <(int)( sizeof(Header) + peekHeader.len))
             break;
 
         g_RecvRingBuffer.MoveFront(2);
@@ -401,7 +405,7 @@ void SendEvent()
     // 그래서 peek을해서 보내보고, 
     // 에러가없다면 그만큼 front를 땡겨와야된다.
     //---------------------------------------------
-    char buffer[1000];
+    char buffer[10000];
 
     while (g_SendRingBuffer.GetUsedSize() != 0)
     {
@@ -410,10 +414,6 @@ void SendEvent()
         Header* header = (Header*)buffer;
         DrawPacket* data = (DrawPacket*)(buffer+2);
 
-        
-        WCHAR string[124];
-        wsprintf(string, L"start X:%d startY:%d endX:%d endY:%d ", data->startX, data->startY, data->endX, data->endY);
-        ERROR_LOG(string, g_hWnd);
         int sendRtn = send(g_Socket, buffer, retPeek, 0);
         //-------------------------------------------
         // send했는데 에러가나면, 할게없다.
